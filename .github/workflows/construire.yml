@@ -1,0 +1,68 @@
+# Construit l'appli pour Windows, Mac (puces M et Intel) et Linux.
+# - À la main : onglet Actions, « Construire l'appli », bouton Run workflow.
+# - Automatiquement : quand tu pousses un tag qui commence par v (ex. v1.2),
+#   les fichiers sont aussi ajoutés à une Release, prête à partager.
+name: Construire l'appli
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            nom: windows
+          - os: macos-15
+            nom: mac-puces-m
+          - os: macos-15-intel
+            nom: mac-intel
+          - os: ubuntu-22.04
+            nom: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+
+      - name: Bibliothèques Qt (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libegl1
+
+      - run: pip install -r requirements.txt pyinstaller
+      - run: pyinstaller magouille.spec --noconfirm
+
+      - name: Ranger (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: mkdir sortie && cp "dist/Magouille met en page.exe" "sortie/Magouille-met-en-page-windows.exe"
+
+      - name: Ranger (Mac)
+        if: runner.os == 'macOS'
+        run: mkdir sortie && cd dist && ditto -c -k --keepParent "Magouille met en page.app" "../sortie/Magouille-met-en-page-${{ matrix.nom }}.zip"
+
+      - name: Ranger (Linux)
+        if: runner.os == 'Linux'
+        run: mkdir sortie && cd dist && chmod +x "Magouille met en page" && tar -czf "../sortie/Magouille-met-en-page-linux.tar.gz" "Magouille met en page"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Magouille-met-en-page-${{ matrix.nom }}
+          path: sortie/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: tout, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: tout/*
